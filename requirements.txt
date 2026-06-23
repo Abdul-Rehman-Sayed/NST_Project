@@ -1,11 +1,16 @@
+# CPU-only PyTorch wheels (works on both Windows dev and Linux free hosts).
+# Without this, Linux pulls the ~2 GB CUDA build and blows past free-tier limits.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 Flask==3.1.2
 Flask_Bootstrap==3.3.7.1
 flask_wtf==1.2.2
 numpy>=1.24,<2.0
 Pillow==12.0.0
-torch==2.2.2
-torchvision==0.17.2
+torch==2.2.2+cpu
+torchvision==0.17.2+cpu
 tqdm==4.66.4
 Werkzeug==3.1.4
 WTForms==3.2.1
-gunicorn
+gunicorn==23.0.0
+python-dotenv==1.0.1

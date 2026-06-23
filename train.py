@@ -3,6 +3,7 @@ import torch
 from torch.utils.data import DataLoader
 import torch.optim as optim
 from pathlib import Path
+from itertools import cycle
 from utils.utils import *
 from utils.models import *
 from tqdm import tqdm
@@ -43,7 +44,12 @@ def parse_arguments():
     parser.add_argument(
         "--style_size", type=int, default=512, help="Size of style image"
     )
-    parser.add_argument("--crop", action="store_true", default=True, help="Crop image")
+    parser.add_argument(
+        "--crop",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Random-crop images during training (use --no-crop to disable)",
+    )
 
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
@@ -81,6 +87,7 @@ def main():
     args = parse_arguments()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
     save_dir = Path("experiment") / args.experiment
     save_dir.mkdir(exist_ok=True, parents=True)
 
@@ -113,6 +120,12 @@ def main():
     print("Number of batches in content dataset: ", len(content_dataloader))
     print("Number of batches in style dataset: ", len(style_dataloader))
 
+    if len(content_dataloader) == 0 or len(style_dataloader) == 0:
+        raise ValueError(
+            f"Need at least batch_size ({args.batch_size}) images in each of "
+            f"'{args.content_dir}' and '{args.style_dir}'."
+        )
+
     encoder = VGGEncoder(args.vgg).to(device)
     decoder = Decoder().to(device)
 
@@ -122,8 +135,8 @@ def main():
     )
 
     if args.resume:
-        decoder.load_state_dict(torch.load(args.decoder_path))
-        optimizer.load_state_dict(torch.load(args.optimizer_path))
+        decoder.load_state_dict(torch.load(args.decoder_path, map_location=device))
+        optimizer.load_state_dict(torch.load(args.optimizer_path, map_location=device))
 
     print("Training...")
 
@@ -136,9 +149,11 @@ def main():
     running_sloss = None
 
     for epoch in range(args.epochs):
+        # Cycle the style loader so every content image is used each epoch even when
+        # the two datasets differ in size (plain zip would stop at the shorter one).
         progress_bar = tqdm(
-            zip(content_dataloader, style_dataloader),
-            total=min(len(content_dataloader), len(style_dataloader)),
+            zip(content_dataloader, cycle(style_dataloader)),
+            total=len(content_dataloader),
         )
 
         running_loss = 0
@@ -194,7 +209,7 @@ def main():
                 f"Iter {epoch+1}: Loss:{running_loss:4f}, Content Loss: {running_closs:4f}, Style Loss: {running_sloss:4f}"
             )
 
-        if (epoch + 1) % args.save_interval == 0:
+        if (epoch + 1) % args.save_interval == 0 or (epoch + 1) == args.epochs:
             torch.save(decoder.state_dict(), save_dir / f"decoder_{epoch+1}.pth")
             torch.save(optimizer.state_dict(), save_dir / f"optimizer_{epoch+1}.pth")
 

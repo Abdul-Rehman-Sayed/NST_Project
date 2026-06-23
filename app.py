@@ -4,27 +4,27 @@ from flask import (
     Flask,
     render_template,
     request,
-    redirect,
-    url_for,
     send_from_directory,
 )
 from flask_wtf import FlaskForm
 from flask_bootstrap import Bootstrap
 from werkzeug.utils import secure_filename
 from wtforms import FileField, SubmitField, FloatField, HiddenField
-from wtforms.validators import InputRequired
 from PIL import Image
 from torchvision import transforms
-import io
+from dotenv import load_dotenv
+
+load_dotenv()  
 
 # Import your existing AdaIN code
 from utils.models import VGGEncoder, Decoder
 from utils.utils import adaptive_instance_normalization, calc_mean_std
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "supersecretkey"
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
 app.config["UPLOAD_FOLDER"] = "static/uploads"
 app.config["ALLOWED_EXTENSIONS"] = {"png", "jpg", "jpeg"}
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # reject uploads > 10 MB (protects RAM)
 Bootstrap(app)
 
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
@@ -40,14 +40,21 @@ class UploadForm(FlaskForm):
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"[startup] Using device: {device}")
 
-encoder = VGGEncoder("vgg_normalised.pth").to(device)
+# Smaller edge that images are resized to before transfer. Lower = less RAM / faster on
+# CPU (safer for free hosts); raise IMAGE_SIZE (e.g. 512) on a roomier host for sharper output.
+IMAGE_SIZE = int(os.environ.get("IMAGE_SIZE", 384))
+
+# On shared/limited CPUs (free tiers) extra threads only add overhead.
+torch.set_num_threads(int(os.environ.get("TORCH_NUM_THREADS", 1)))
+
+VGG_PATH = os.environ.get("VGG_PATH", "vgg_normalised.pth")
+DECODER_PATH = os.environ.get("DECODER_PATH", os.path.join("models", "decoder.pth"))
+
+encoder = VGGEncoder(VGG_PATH).to(device)
 decoder = Decoder().to(device)
-decoder.load_state_dict(
-    torch.load(
-        ""
-    )  # ! paste the decoder_final.pth path from the final exp folder after running
-)
+decoder.load_state_dict(torch.load(DECODER_PATH, map_location=device))
 
 encoder.eval()
 decoder.eval()
@@ -62,11 +69,11 @@ def allowed_file(filename):
 
 def style_transfer(content_image, style_image, encoder, decoder, alpha, device):
     content_transform = transforms.Compose(
-        [transforms.Resize(512), transforms.ToTensor()]
+        [transforms.Resize(IMAGE_SIZE), transforms.ToTensor()]
     )
 
     style_transform = transforms.Compose(
-        [transforms.Resize(512), transforms.ToTensor()]
+        [transforms.Resize(IMAGE_SIZE), transforms.ToTensor()]
     )
     content_image = content_transform(content_image).unsqueeze(0).to(device)
     style_image = style_transform(style_image).unsqueeze(0).to(device)
@@ -108,6 +115,8 @@ def index():
                     os.path.join(app.config["UPLOAD_FOLDER"], content_filename)
                 )
                 form.content_path.data = content_filename
+            else:
+                error = "Unsupported content image type (use png, jpg or jpeg)"
         else:
             content_filename = form.content_path.data
 
@@ -118,6 +127,8 @@ def index():
                     os.path.join(app.config["UPLOAD_FOLDER"], style_filename)
                 )
                 form.style_path.data = style_filename
+            else:
+                error = "Unsupported style image type (use png, jpg or jpeg)"
         else:
             style_filename = form.style_path.data
 
@@ -141,7 +152,7 @@ def index():
                 result_image = result_filename
             except Exception as e:
                 error = str(e)
-    else:
+    elif request.method == "POST":
         if not content_filename:
             error = "Please upload content image"
         if not style_filename:
@@ -170,4 +181,4 @@ def send_example(filename):
 if __name__ == "__main__":
     from werkzeug.serving import run_simple
 
-    run_simple("localhost", 5000, app, use_reloader=True, use_debugger=True)
+    run_simple("localhost", 5000, app, use_reloader=False, use_debugger=True)

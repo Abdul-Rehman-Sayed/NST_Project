@@ -17,6 +17,9 @@ env/
 # Model weights
 *.pth
 *.pt
+# ...but DO ship the two weights the app needs to boot in the cloud
+!vgg_normalised.pth
+!models/decoder.pth
 
 # Training output
 experiment/
