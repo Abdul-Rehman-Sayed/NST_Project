@@ -7,12 +7,12 @@ from flask import (
     send_from_directory,
 )
 from flask_wtf import FlaskForm
-from flask_bootstrap import Bootstrap
 from werkzeug.utils import secure_filename
 from wtforms import FileField, SubmitField, FloatField, HiddenField
 from PIL import Image
 from torchvision import transforms
 from dotenv import load_dotenv
+from uuid import uuid4
 
 load_dotenv()  
 
@@ -25,7 +25,6 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
 app.config["UPLOAD_FOLDER"] = "static/uploads"
 app.config["ALLOWED_EXTENSIONS"] = {"png", "jpg", "jpeg"}
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # reject uploads > 10 MB (protects RAM)
-Bootstrap(app)
 
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
@@ -145,7 +144,8 @@ def index():
                     content_image, style_image, encoder, decoder, alpha, device
                 )
 
-                result_filename = "stylized_" + content_filename
+                # Unique name per run so the browser never shows a cached old result.
+                result_filename = f"stylized_{uuid4().hex[:8]}_{content_filename}"
                 result_path = os.path.join(app.config["UPLOAD_FOLDER"], result_filename)
                 save_image(stylized_image, result_path)
 
@@ -176,6 +176,23 @@ def send_image(filename):
 @app.route("/examples/<path:filename>")
 def send_example(filename):
     return send_from_directory("examples", filename)
+
+
+@app.errorhandler(413)
+def file_too_large(error):
+    # Friendly message when an upload exceeds MAX_CONTENT_LENGTH.
+    # formdata=None avoids re-reading the oversized request body.
+    return (
+        render_template(
+            "index.html",
+            form=UploadForm(formdata=None),
+            result_image=None,
+            content_image=None,
+            style_image=None,
+            error="Each image must be under 10 MB. Please upload a smaller file.",
+        ),
+        413,
+    )
 
 
 if __name__ == "__main__":
