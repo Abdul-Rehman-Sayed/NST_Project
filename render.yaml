@@ -1,0 +1,18 @@
+# Render Blueprint - deploy by pointing Render at this repo (New + > Blueprint).
+services:
+  - type: web
+    name: adain-style-transfer
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # 1 worker keeps memory low; long timeout survives slow CPU inference.
+    startCommand: gunicorn app:app --workers 1 --timeout 120 --bind 0.0.0.0:$PORT
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true        # Render generates a strong secret for you
+      - key: IMAGE_SIZE
+        value: "384"               # lower = less RAM; raise if you move off the free tier
+      - key: TORCH_NUM_THREADS
+        value: "1"
+      - key: PYTHON_VERSION
+        value: "3.11.9"            # match the cp311 torch wheels in requirements.txt

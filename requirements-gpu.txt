@@ -1,0 +1,21 @@
+# Local NVIDIA-GPU setup. Use this INSTEAD of requirements.txt on a GPU machine:
+#   pip install -r requirements-gpu.txt
+#
+# The app and training code auto-use the GPU when torch.cuda.is_available() is True
+# and fall back to CPU otherwise -- no code change needed.
+#
+# cu121 = CUDA 12.1 build. If your driver is CUDA 11.8, change every cu121 -> cu118.
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+Flask==3.1.2
+Flask_Bootstrap==3.3.7.1
+flask_wtf==1.2.2
+numpy>=1.24,<2.0
+Pillow==12.0.0
+torch==2.2.2+cu121
+torchvision==0.17.2+cu121
+tqdm==4.66.4
+Werkzeug==3.1.4
+WTForms==3.2.1
+gunicorn==23.0.0
+python-dotenv==1.0.1
