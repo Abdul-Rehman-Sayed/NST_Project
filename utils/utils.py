@@ -16,13 +16,18 @@ class ImageFolderDataset(Dataset):
         return len(self.files)
 
     def __getitem__(self, idx):
-        image_path = os.path.join(self.root, self.files[idx])
-        image = Image.open(image_path).convert("RGB")
-
-        if self.transform:
-            image = self.transform(image)
-
-        return image
+        # Some datasets (e.g. Painter by Numbers) contain corrupt/truncated images.
+        # Skip a bad one by advancing to the next file instead of crashing the run.
+        for _ in range(len(self.files)):
+            image_path = os.path.join(self.root, self.files[idx])
+            try:
+                image = Image.open(image_path).convert("RGB")
+                if self.transform:
+                    image = self.transform(image)
+                return image
+            except Exception:
+                idx = (idx + 1) % len(self.files)
+        raise RuntimeError(f"No readable images found in {self.root}")
 
 
 def get_transform(size, crop, final_size):
