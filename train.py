@@ -1,3 +1,11 @@
+import os
+
+# Fight CUDA memory fragmentation on small GPUs (e.g. 4 GB GTX 1650). Capping the
+# allocator's split size stops it from leaving unusable scattered free blocks that
+# OOM mid-epoch. (expandable_segments is Linux-only, so we use max_split_size_mb,
+# which works on Windows too.) Must be set before torch initializes CUDA.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128")
+
 import argparse
 import torch
 from torch.utils.data import DataLoader
@@ -102,18 +110,20 @@ def main():
     content_dataset = ImageFolderDataset(args.content_dir, content_transform)
     style_dateset = ImageFolderDataset(args.style_dir, style_transform)
 
+    # pin_memory=False: on a small GPU the page-locked copy adds memory pressure
+    # (it's where the OOM surfaced) for negligible speedup at this batch size.
     content_dataloader = DataLoader(
         content_dataset,
         batch_size=args.batch_size,
         shuffle=True,
-        pin_memory=True,
+        pin_memory=False,
         drop_last=True,
     )
     style_dataloader = DataLoader(
         style_dateset,
         batch_size=args.batch_size,
         shuffle=True,
-        pin_memory=True,
+        pin_memory=False,
         drop_last=True,
     )
 
@@ -154,6 +164,10 @@ def main():
         progress_bar = tqdm(
             zip(content_dataloader, cycle(style_dataloader)),
             total=len(content_dataloader),
+            desc=f"Epoch {epoch+1}/{args.epochs}",
+            dynamic_ncols=True,  # fit bar to the real terminal width each refresh so it
+                                 # never wraps onto a 2nd line (the source of the garble)
+            unit="batch",
         )
 
         running_loss = 0
@@ -190,8 +204,12 @@ def main():
             loss.backward()
             optimizer.step()
 
-            progress_bar.set_description(
-                f"Loss:{loss.item():4f}, Content Loss: {loss_c.item():4f}, Style Loss: {loss_s.item():4f}"
+            # Compact postfix keeps losses readable without crowding out the
+            # %/count/ETA/it-s that tqdm shows on the right.
+            progress_bar.set_postfix(
+                loss=f"{loss.item():.1f}",
+                c=f"{loss_c.item():.1f}",
+                s=f"{loss_s.item():.1f}",
             )
 
             running_loss += loss.item()
@@ -206,7 +224,8 @@ def main():
 
         if (epoch + 1) % args.log_interval == 0:
             tqdm.write(
-                f"Iter {epoch+1}: Loss:{running_loss:4f}, Content Loss: {running_closs:4f}, Style Loss: {running_sloss:4f}"
+                f"  Epoch {epoch+1}/{args.epochs} done | avg loss {running_loss:.2f} "
+                f"(content {running_closs:.2f}, style {running_sloss:.2f})"
             )
 
         if (epoch + 1) % args.save_interval == 0 or (epoch + 1) == args.epochs:
@@ -218,6 +237,8 @@ def main():
                 save_image(
                     output, save_dir / f"output_{epoch+1}.png", nrow=args.batch_size
                 )
+
+            tqdm.write(f"  -> saved checkpoint: {save_dir / f'decoder_{epoch+1}.pth'}")
 
 
 if __name__ == "__main__":
